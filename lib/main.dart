@@ -1,13 +1,20 @@
-import 'package:flutter/material.dart';
+// The original content is temporarily commented out to allow generating a self-contained demo - feel free to uncomment later.
+
 import 'dart:io';
 import 'dart:typed_data';
-import 'package:flutter/services.dart' show rootBundle;
+
 import 'package:archive/archive.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show rootBundle;
+import 'package:integrate_python_demo/src/rust/api/executor.dart';
+import 'package:integrate_python_demo/src/rust/api/os.dart';
+import 'package:integrate_python_demo/src/rust/frb_generated.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
-void main() {
+Future<void> main() async {
+  await RustLib.init();
   runApp(const MyApp());
 }
 
@@ -36,7 +43,16 @@ class MyApp extends StatelessWidget {
         // This works for code too, not just values: Most code changes can be
         // tested with just a hot reload.
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
+        useMaterial3: true,
       ),
+      darkTheme: ThemeData(
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: Colors.deepPurple,
+          brightness: Brightness.dark,
+        ),
+        useMaterial3: true,
+      ),
+      themeMode: ThemeMode.system,
       home: const MyHomePage(title: 'Integrate Python Demo'),
     );
   }
@@ -61,9 +77,11 @@ class MyHomePage extends StatefulWidget {
 }
 
 class _MyHomePageState extends State<MyHomePage> {
-  int _counter = 0;
   bool _isExtracting = false;
-  
+  String _stdout = '';
+  String _stderr = '';
+  String _exception = '';
+
   @override
   void initState() {
     super.initState();
@@ -79,11 +97,12 @@ class _MyHomePageState extends State<MyHomePage> {
       });
     }
     try {
+      await _ensureNativeDemoInstalledFromZip();
       await _ensurePythonInstalledFromZip();
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('解压失败: $e')),
+          SnackBar(content: Text('解压失败: $e'), duration: Duration(seconds: 5)),
         );
       }
     } finally {
@@ -99,6 +118,52 @@ class _MyHomePageState extends State<MyHomePage> {
     return await getApplicationSupportDirectory();
   }
 
+  Future<Directory> _getPythonDir() async {
+    final Directory supportDir = await _getAppSupportDir();
+    return Directory(p.join(supportDir.path, 'python-3.11'));
+  }
+
+  Future<Directory> _getPythonAbiDir() async {
+    final Directory pythonDir = await _getPythonDir();
+    // detect current cpu is armeabi-v7a or arm64-v8a
+    final String cpu = abi();
+    debugPrint('cpu=$cpu');
+    return Directory(p.join(pythonDir.path, 'python-$cpu'));
+  }
+
+  Future<Directory> _getPythonStdlibDir() async {
+    final Directory pythonDir = await _getPythonDir();
+    return Directory(p.join(pythonDir.path, 'python-stdlib'));
+  }
+
+  Future<Directory> _getNativeDemoDir() async {
+    final Directory supportDir = await _getAppSupportDir();
+    return Directory(p.join(supportDir.path, 'assets', abi()));
+  }
+
+  Future<void> _extractAssetFile(String assetPath, String targetDir) async {
+    final ByteData assetData = await rootBundle.load(assetPath);
+    final List<int> assetBytes = assetData.buffer.asUint8List(
+      assetData.offsetInBytes,
+      assetData.lengthInBytes,
+    );
+    final File targetFile = File(p.join(targetDir, assetPath));
+    await targetFile.parent.create(recursive: true);
+    await targetFile.writeAsBytes(assetBytes, flush: true);
+  }
+
+  Future<void> _ensureNativeDemoInstalledFromZip() async {
+    // 解压assets/nativeexe和assets/libnativelib.so到程序私有目录
+    await _extractAssetFile(
+      'assets/${abi()}/nativeexe',
+      (await _getAppSupportDir()).path,
+    );
+    await _extractAssetFile(
+      'assets/${abi()}/libnativelib.so',
+      (await _getAppSupportDir()).path,
+    );
+  }
+
   Future<void> _ensurePythonInstalledFromZip() async {
     final Directory supportDir = await _getAppSupportDir();
     final String pythonDirPath = p.join(supportDir.path, 'python-3.11');
@@ -110,7 +175,10 @@ class _MyHomePageState extends State<MyHomePage> {
     List<int> zipBytes;
     try {
       final ByteData zipData = await rootBundle.load(zipAssetPath);
-      zipBytes = zipData.buffer.asUint8List(zipData.offsetInBytes, zipData.lengthInBytes);
+      zipBytes = zipData.buffer.asUint8List(
+        zipData.offsetInBytes,
+        zipData.lengthInBytes,
+      );
       debugPrint('[PY] asset loaded: $zipAssetPath, size=${zipBytes.length}');
     } catch (e) {
       debugPrint('[PY][ERR] load asset failed: $zipAssetPath, error=$e');
@@ -125,8 +193,14 @@ class _MyHomePageState extends State<MyHomePage> {
         debugPrint('[PY] old dir removed');
       } catch (e) {
         // 如果删除失败，尝试重命名避免占用
-        final String backupPath = p.join(supportDir.path, 'python-3.11.bak_${DateTime.now().millisecondsSinceEpoch}');
-        try { await pythonDir.rename(backupPath); debugPrint('[PY] old dir renamed to $backupPath'); } catch (_) {}
+        final String backupPath = p.join(
+          supportDir.path,
+          'python-3.11.bak_${DateTime.now().millisecondsSinceEpoch}',
+        );
+        try {
+          await pythonDir.rename(backupPath);
+          debugPrint('[PY] old dir renamed to $backupPath');
+        } catch (_) {}
       }
     }
     await pythonDir.create(recursive: true);
@@ -138,12 +212,16 @@ class _MyHomePageState extends State<MyHomePage> {
       debugPrint('[PY] archive entries=${archive.length}');
       for (final ArchiveFile file in archive) {
         // 路径规范化与安全检查
-        final String normalizedName = p.normalize(file.name.replaceAll('\\', '/'));
+        final String normalizedName = p.normalize(
+          file.name.replaceAll('\\', '/'),
+        );
         if (normalizedName.contains('..') || p.isAbsolute(normalizedName)) {
           debugPrint('[PY][WARN] skip suspicious entry: ${file.name}');
           continue;
         }
-        final String outPath = p.normalize(p.join(pythonDirPath, normalizedName));
+        final String outPath = p.normalize(
+          p.join(pythonDirPath, normalizedName),
+        );
         if (!p.isWithin(pythonDirPath, outPath)) {
           debugPrint('[PY][WARN] skip outside path: $outPath');
           continue;
@@ -169,69 +247,117 @@ class _MyHomePageState extends State<MyHomePage> {
     debugPrint('[PY] extract done, files=$filesWritten, stamp written');
   }
 
-  void _incrementCounter() {
-    setState(() {
-      // This call to setState tells the Flutter framework that something has
-      // changed in this State, which causes it to rerun the build method below
-      // so that the display can reflect the updated values. If we changed
-      // _counter without calling setState(), then the build method would not be
-      // called again, and so nothing would appear to happen.
-      _counter++;
-    });
+  void _executeNativeDemo() async {
+    debugPrint('executeNativeDemo start');
+    try {
+      final String dir = (await _getNativeDemoDir()).path;
+      final String exe = p.join(dir, 'nativeexe');
+      final ldLibraryPath = dir;
+      final (String stdout, String stderr) = await executeCommand(
+        exec: exe,
+        args: [],
+        ldLibraryPath: [ldLibraryPath],
+      );
+      debugPrint('executeNativeDemo result=$stdout');
+      setState(() {
+        _stdout = stdout;
+        _stderr = stderr;
+        _exception = '';
+      });
+    } catch (e) {
+      debugPrint('executeNativeDemo error=$e');
+      setState(() {
+        _stdout = '';
+        _stderr = '';
+        _exception = e.toString();
+      });
+    }
+  }
+
+  void _executeScript() async {
+    debugPrint('executeScript start');
+    try {
+      String exec;
+      String? pythonLibraryDir;
+      List<String>? pythonPaths;
+      if (Platform.isAndroid) {
+        // use integrated python
+        final pythonAbiDir = (await _getPythonAbiDir()).path;
+        final pythonStdlibDir = (await _getPythonStdlibDir()).path;
+        exec = p.join(pythonAbiDir, 'python3.11');
+        pythonLibraryDir = pythonAbiDir;
+        debugPrint('exec=$exec, exists=${await File(exec).exists()}');
+        pythonPaths = [pythonAbiDir, pythonStdlibDir];
+      } else {
+        // use system python
+        exec = "python";
+      }
+      final String code = "import sys;print(sys.version)";
+      final (String stdout, String stderr) = await executePythonScript(
+        exec: exec,
+        code: code,
+        pythonLibraryDir: pythonLibraryDir,
+        pythonPaths: pythonPaths,
+      );
+      final String pythonVersion = stdout.isEmpty
+          ? stderr
+          : "stdout=$stdout\nstderr=$stderr";
+      debugPrint('executeScript result=$pythonVersion');
+      if (mounted) {
+        setState(() {
+          _stdout = stdout;
+          _stderr = stderr;
+          _exception = '';
+        });
+      }
+    } catch (e) {
+      debugPrint('executeScript error=$e');
+      setState(() {
+        _stdout = '';
+        _stderr = '';
+        _exception = e.toString();
+      });
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    // This method is rerun every time setState is called, for instance as done
-    // by the _incrementCounter method above.
-    //
-    // The Flutter framework has been optimized to make rerunning build methods
-    // fast, so that you can just rebuild anything that needs updating rather
-    // than having to individually change instances of widgets.
     return Stack(
       children: [
         Scaffold(
           appBar: AppBar(
-            // TRY THIS: Try changing the color here to a specific color (to
-            // Colors.amber, perhaps?) and trigger a hot reload to see the AppBar
-            // change color while the other colors stay the same.
             backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-            // Here we take the value from the MyHomePage object that was created by
-            // the App.build method, and use it to set our appbar title.
             title: Text(widget.title),
           ),
-          body: Center(
-            // Center is a layout widget. It takes a single child and positions it
-            // in the middle of the parent.
+          body: Align(
+            alignment: Alignment.centerLeft,
             child: Column(
-              // Column is also a layout widget. It takes a list of children and
-              // arranges them vertically. By default, it sizes itself to fit its
-              // children horizontally, and tries to be as tall as its parent.
-              //
-              // Column has various properties to control how it sizes itself and
-              // how it positions its children. Here we use mainAxisAlignment to
-              // center the children vertically; the main axis here is the vertical
-              // axis because Columns are vertical (the cross axis would be
-              // horizontal).
-              //
-              // TRY THIS: Invoke "debug painting" (choose the "Toggle Debug Paint"
-              // action in the IDE, or press "p" in the console), to see the
-              // wireframe for each widget.
+              crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisAlignment: MainAxisAlignment.center,
               children: <Widget>[
-                const Text('You have pushed the button this many times:'),
-                Text(
-                  '$_counter',
-                  style: Theme.of(context).textTheme.headlineMedium,
-                ),
+                Text("stdout=", style: TextStyle(color: Colors.cyan)),
+                Text(_stdout),
+                const Text("stderr=", style: TextStyle(color: Colors.red)),
+                Text(_stderr),
+                const Text("exception=", style: TextStyle(color: Colors.red)),
+                Text(_exception),
               ],
             ),
           ),
-          floatingActionButton: FloatingActionButton(
-            onPressed: _isExtracting ? null : _incrementCounter,
-            tooltip: 'Increment',
-            child: const Icon(Icons.abc),
-          ), // This trailing comma makes auto-formatting nicer for build methods.
+          floatingActionButton: Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              if (Platform.isAndroid) OutlinedButton(
+                onPressed: _executeNativeDemo,
+                child: const Text('Native Demo'),
+              ),
+              const SizedBox(width: 12),
+              OutlinedButton(
+                onPressed: _executeScript,
+                child: const Text('Python Version'),
+              ),
+            ],
+          ),
         ),
         if (_isExtracting) ...[
           const ModalBarrier(dismissible: false, color: Colors.black54),
@@ -253,3 +379,30 @@ class _MyHomePageState extends State<MyHomePage> {
     );
   }
 }
+
+// import 'package:flutter/material.dart';
+// import 'package:integrate_python_demo/src/rust/api/simple.dart';
+// import 'package:integrate_python_demo/src/rust/frb_generated.dart';
+
+// Future<void> main() async {
+//   await RustLib.init();
+//   runApp(const MyApp());
+// }
+
+// class MyApp extends StatelessWidget {
+//   const MyApp({super.key});
+
+//   @override
+//   Widget build(BuildContext context) {
+//     return MaterialApp(
+//       home: Scaffold(
+//         appBar: AppBar(title: const Text('flutter_rust_bridge quickstart')),
+//         body: Center(
+//           child: Text(
+//             'Action: Call Rust `greet("Tom")`\nResult: `${greet(name: "Tom")}`',
+//           ),
+//         ),
+//       ),
+//     );
+//   }
+// }
