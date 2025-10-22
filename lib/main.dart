@@ -85,12 +85,11 @@ class _MyHomePageState extends State<MyHomePage> {
   @override
   void initState() {
     super.initState();
-    _kickOffAssetExtraction();
+    _androidAssetExtraction();
   }
 
-  Future<void> _kickOffAssetExtraction() async {
-    // Do not run on web since file system APIs are not supported.
-    if (kIsWeb) return;
+  Future<void> _androidAssetExtraction() async {
+    if (!Platform.isAndroid) return;
     if (mounted) {
       setState(() {
         _isExtracting = true;
@@ -347,10 +346,11 @@ class _MyHomePageState extends State<MyHomePage> {
           floatingActionButton: Row(
             mainAxisAlignment: MainAxisAlignment.end,
             children: [
-              if (Platform.isAndroid) OutlinedButton(
-                onPressed: _executeNativeDemo,
-                child: const Text('Native Demo'),
-              ),
+              if (Platform.isAndroid)
+                OutlinedButton(
+                  onPressed: _executeNativeDemo,
+                  child: const Text('Native Demo'),
+                ),
               const SizedBox(width: 12),
               OutlinedButton(
                 onPressed: _executeScript,

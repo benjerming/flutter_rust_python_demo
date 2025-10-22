@@ -1,13 +1,14 @@
-use libloading;
+#[allow(unused_imports)]
 use log::{error, info};
-use std::collections::HashMap;
-use std::fs;
+#[allow(unused_imports)]
 use std::sync::{Mutex, OnceLock};
+use std::collections::HashMap;
 
-// #[cfg(unix)]
+#[cfg(target_os = "android")]
 #[flutter_rust_bridge::frb(sync)]
 fn get_executable_interpreter(path: &str) -> Option<String> {
     use goblin::elf::program_header::PT_INTERP;
+    use std::fs;
 
     let data = fs::read(path)
         .inspect_err(|e| error!("reading file error={e:?}"))
@@ -36,11 +37,7 @@ fn get_executable_interpreter(path: &str) -> Option<String> {
         })?
 }
 
-// #[cfg(not(unix))]
-// fn get_executable_interpreter(_path: &str) -> Option<String> {
-//     None
-// }
-
+#[cfg(target_os = "android")]
 #[flutter_rust_bridge::frb(sync)]
 pub fn load_library(lib_path: String) -> Result<(), String> {
     static GLOBAL_LIBRARIES: OnceLock<Mutex<HashMap<String, libloading::Library>>> =
@@ -82,6 +79,7 @@ pub fn set_executable_permissions(exec: String) -> Result<(), String> {
     Ok(())
 }
 
+#[allow(dead_code)]
 fn extend_env(key: &str, ld_library_path: Option<Vec<String>>) -> Option<String> {
     match ld_library_path {
         Some(paths1) => {
@@ -106,33 +104,41 @@ fn extend_env(key: &str, ld_library_path: Option<Vec<String>>) -> Option<String>
     }
 }
 
+#[allow(unused_mut)]
 pub async fn execute_command(
-    exec: String,
-    args: Vec<String>,
+    mut exec: String,
+    mut args: Vec<String>,
     ld_library_path: Option<Vec<String>>,
     env: Option<HashMap<String, String>>,
 ) -> Result<(String, String), String> {
     info!("Executing command exec={exec:?}, args={args:?}, ld_library_path={ld_library_path:?}");
 
+    let ld_library_path_key = "LD_LIBRARY_PATH";
+    #[allow(unused_assignments)]
+    let mut ld_library_path_value: Option<String> = None;
     #[cfg(unix)]
-    set_executable_permissions(exec.clone())?;
+    {
+        set_executable_permissions(exec.clone())?;
 
-    let key = "LD_LIBRARY_PATH";
-    let ld_library_path = extend_env(key, ld_library_path);
+        ld_library_path_value = extend_env(ld_library_path_key, ld_library_path);
 
-    let interpreter = get_executable_interpreter(&exec);
-    let (exec, args) = if let Some(interpreter) = interpreter {
-        info!("Using interpreter={interpreter} in exec={exec:?}");
-        (interpreter, vec![exec].into_iter().chain(args).collect())
-    } else {
-        (exec, args)
-    };
+        let interpreter = get_executable_interpreter(&exec);
+        if let Some(interpreter) = interpreter {
+            info!("Using interpreter={interpreter} in exec={exec:?}");
+            (exec, args) = (interpreter, vec![exec].into_iter().chain(args).collect())
+        }
+    }
+
+    #[cfg(not(unix))]
+    {
+        ld_library_path_value = None;
+    }
 
     info!("internal Executing command exec={exec:?}, args={args:?}");
     let mut command = tokio::process::Command::new(&exec);
     command.args(&args);
-    if let Some(value) = ld_library_path {
-        command.env(key, value);
+    if let Some(ld_library_path_value) = ld_library_path_value {
+        command.env(ld_library_path_key, ld_library_path_value);
     }
     if let Some(env_map) = env {
         for (k, v) in env_map {
