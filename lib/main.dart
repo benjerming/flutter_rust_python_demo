@@ -4,7 +4,6 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:integrate_python_demo/src/rust/api/executor.dart';
@@ -251,11 +250,10 @@ class _MyHomePageState extends State<MyHomePage> {
     try {
       final String dir = (await _getNativeDemoDir()).path;
       final String exe = p.join(dir, 'nativeexe');
-      final ldLibraryPath = dir;
       final (String stdout, String stderr) = await executeCommand(
         exec: exe,
         args: [],
-        ldLibraryPath: [ldLibraryPath],
+        env: {'LD_LIBRARY_PATH': dir},
       );
       debugPrint('executeNativeDemo result=$stdout');
       setState(() {
@@ -291,7 +289,7 @@ class _MyHomePageState extends State<MyHomePage> {
         // use system python
         exec = "python";
       }
-      final String code = "import sys;print(sys.version)";
+      final String code = "import sys;print(sys.version);";
       final (String stdout, String stderr) = await executePythonScript(
         exec: exec,
         code: code,
@@ -379,30 +377,3 @@ class _MyHomePageState extends State<MyHomePage> {
     );
   }
 }
-
-// import 'package:flutter/material.dart';
-// import 'package:integrate_python_demo/src/rust/api/simple.dart';
-// import 'package:integrate_python_demo/src/rust/frb_generated.dart';
-
-// Future<void> main() async {
-//   await RustLib.init();
-//   runApp(const MyApp());
-// }
-
-// class MyApp extends StatelessWidget {
-//   const MyApp({super.key});
-
-//   @override
-//   Widget build(BuildContext context) {
-//     return MaterialApp(
-//       home: Scaffold(
-//         appBar: AppBar(title: const Text('flutter_rust_bridge quickstart')),
-//         body: Center(
-//           child: Text(
-//             'Action: Call Rust `greet("Tom")`\nResult: `${greet(name: "Tom")}`',
-//           ),
-//         ),
-//       ),
-//     );
-//   }
-// }

@@ -1,12 +1,14 @@
 #[allow(unused_imports)]
+use super::env_ext::EnvExt;
+#[allow(unused_imports)]
 use log::{error, info};
+use std::collections::HashMap;
 #[allow(unused_imports)]
 use std::sync::{Mutex, OnceLock};
-use std::collections::HashMap;
 
 #[cfg(target_os = "android")]
 #[flutter_rust_bridge::frb(sync)]
-fn get_executable_interpreter(path: &str) -> Option<String> {
+pub fn get_executable_interpreter(path: &str) -> Option<String> {
     use goblin::elf::program_header::PT_INTERP;
     use std::fs;
 
@@ -71,57 +73,79 @@ pub fn set_executable_permissions(exec: String) -> Result<(), String> {
         .map_err(|e| e.to_string())?;
     let mut perms = meta.permissions();
     info!("current permissions={perms:?}");
-    perms.set_mode(perms.mode() | 0o111);
-    info!("setting permissions={perms:?}");
-    fs::set_permissions(&exec, perms)
-        .inspect_err(|e| error!("setting permissions error={e:?}"))
-        .map_err(|e| e.to_string())?;
+    match perms.mode() & 0o111 {
+        0o111 => {
+            info!("executable already set");
+            Ok(())
+        }
+        _ => {
+            perms.set_mode(perms.mode() | 0o111);
+            info!("setting permissions={perms:?}");
+            fs::set_permissions(&exec, perms)
+                .inspect_err(|e| error!("setting permissions error={e:?}"))
+                .map_err(|e| e.to_string())
+        }
+    }
+}
+
+#[cfg(not(unix))]
+#[flutter_rust_bridge::frb(sync)]
+pub fn get_executable_interpreter(_path: &str) -> Option<String> {
+    None
+}
+
+#[cfg(not(unix))]
+#[flutter_rust_bridge::frb(sync)]
+pub fn set_executable_permissions(_exec: String) -> Result<(), String> {
     Ok(())
 }
 
 #[allow(dead_code)]
-fn extend_env(key: &str, ld_library_path: Option<Vec<String>>) -> Option<String> {
-    match ld_library_path {
-        Some(paths1) => {
-            info!("user provided {key}={paths1:?}");
+fn extend_env(key: &str, paths_opt: Option<Vec<String>>) -> Option<String> {
+    match paths_opt {
+        Some(user_paths) => {
+            info!("user provided {key}={user_paths:?}");
 
-            let paths = match std::env::var(key) {
-                Ok(value) => {
-                    info!("appending to existing {key}={value}");
-                    let paths0 = value.split(":").map(|s| s.to_string()).collect::<Vec<_>>();
-                    let paths = paths0.into_iter().chain(paths1).collect::<Vec<_>>();
-                    paths
+            let combined: Vec<std::path::PathBuf> = match std::env::var_os(key) {
+                Some(existing) => {
+                    info!("appending to existing {key}={existing:?}");
+                    std::env::split_paths(&existing)
+                        .chain(user_paths.iter().map(|p| std::path::PathBuf::from(p)))
+                        .collect()
                 }
-                Err(_) => {
+                None => {
                     info!("not existing {key}, using user provided");
-                    paths1
+                    user_paths
+                        .iter()
+                        .map(|p| std::path::PathBuf::from(p))
+                        .collect()
                 }
             };
-            info!("final {key}={paths:?}");
-            Some(paths.join(":"))
+
+            match std::env::join_paths(combined) {
+                Ok(joined) => {
+                    info!("final {key}={joined:?}");
+                    Some(joined.to_string_lossy().into_owned())
+                }
+                Err(e) => {
+                    error!("join paths error={e:?}");
+                    None
+                }
+            }
         }
-        None => std::env::var(key).ok(),
+        None => std::env::var_os(key).map(|v| v.to_string_lossy().into_owned()),
     }
 }
 
-#[allow(unused_mut)]
 pub async fn execute_command(
     mut exec: String,
     mut args: Vec<String>,
-    ld_library_path: Option<Vec<String>>,
     env: Option<HashMap<String, String>>,
 ) -> Result<(String, String), String> {
-    info!("Executing command exec={exec:?}, args={args:?}, ld_library_path={ld_library_path:?}");
+    info!("Executing command exec={exec:?}, args={args:?}, env={env:?}");
 
-    let ld_library_path_key = "LD_LIBRARY_PATH";
-    #[allow(unused_assignments)]
-    let mut ld_library_path_value: Option<String> = None;
-    #[cfg(unix)]
-    {
-        set_executable_permissions(exec.clone())?;
-
-        ld_library_path_value = extend_env(ld_library_path_key, ld_library_path);
-
+    if std::path::Path::new(&exec).is_file() {
+        // set_executable_permissions(exec.clone())?;
         let interpreter = get_executable_interpreter(&exec);
         if let Some(interpreter) = interpreter {
             info!("Using interpreter={interpreter} in exec={exec:?}");
@@ -129,17 +153,9 @@ pub async fn execute_command(
         }
     }
 
-    #[cfg(not(unix))]
-    {
-        ld_library_path_value = None;
-    }
-
     info!("internal Executing command exec={exec:?}, args={args:?}");
     let mut command = tokio::process::Command::new(&exec);
     command.args(&args);
-    if let Some(ld_library_path_value) = ld_library_path_value {
-        command.env(ld_library_path_key, ld_library_path_value);
-    }
     if let Some(env_map) = env {
         for (k, v) in env_map {
             info!("injecting env key={k:?}, value={v:?}",);
@@ -159,11 +175,54 @@ pub async fn execute_python_script(
     python_paths: Option<Vec<String>>,
     python_library_dir: Option<String>,
 ) -> Result<(String, String), String> {
-    execute_command(
-        exec,
-        vec!["-c".to_string(), code],
-        python_library_dir.map(|dir| vec![dir]),
-        python_paths.map(|paths| HashMap::from([("PYTHONPATH".to_string(), paths.join(":"))])),
-    )
-    .await
+    let env = match python_paths {
+        Some(paths) => {
+            let value =
+                std::env::join_paths(paths).map_err(|e| format!("join paths error={e:?}"))?;
+            Some(HashMap::from([(
+                "PYTHONPATH".into(),
+                value.to_string_lossy().into_owned(),
+            )]))
+        }
+        None => None,
+    };
+    let env = match python_library_dir {
+        Some(dir) => match env {
+            Some(mut env) => {
+                env.insert("LD_LIBRARY_PATH".into(), dir);
+                Some(env)
+            }
+            None => Some(HashMap::from([("LD_LIBRARY_PATH".into(), dir)])),
+        },
+        None => None,
+    };
+    execute_command(exec, vec!["-c".to_string(), code], env).await
 }
+
+// pub async fn get_python_version_with_api(
+//     python_paths: Option<Vec<String>>,
+//     python_library_dir: Option<String>,
+// ) -> Result<(String, String), String> {
+//     let env = match python_paths {
+//         Some(paths) => {
+//             let value =
+//                 std::env::join_paths(paths).map_err(|e| format!("join paths error={e:?}"))?;
+//             Some(HashMap::from([(
+//                 "PYTHONPATH".into(),
+//                 value.to_string_lossy().into_owned(),
+//             )]))
+//         }
+//         None => None,
+//     };
+//     let env = match python_library_dir {
+//         Some(dir) => match env {
+//             Some(mut env) => {
+//                 env.insert("LD_LIBRARY_PATH".into(), dir);
+//                 Some(env)
+//             }
+//             None => Some(HashMap::from([("LD_LIBRARY_PATH".into(), dir)])),
+//         },
+//         None => None,
+//     };
+//     execute_command(exec, vec!["-c".to_string(), code], env).await
+// }

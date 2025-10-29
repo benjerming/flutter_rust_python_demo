@@ -69,7 +69,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.11.1';
 
   @override
-  int get rustContentHash => 1169833432;
+  int get rustContentHash => -2054430783;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -85,7 +85,6 @@ abstract class RustLibApi extends BaseApi {
   Future<(String, String)> crateApiExecutorExecuteCommand({
     required String exec,
     required List<String> args,
-    List<String>? ldLibraryPath,
     Map<String, String>? env,
   });
 
@@ -98,6 +97,8 @@ abstract class RustLibApi extends BaseApi {
 
   String crateApiEnvGetEnv({required String key});
 
+  String? crateApiExecutorGetExecutableInterpreter({required String path});
+
   List<String> crateApiEnvGetPathsEnv({
     required String key,
     required String separator,
@@ -108,6 +109,8 @@ abstract class RustLibApi extends BaseApi {
   Future<void> crateApiInitInitLogger();
 
   void crateApiEnvSetEnv({required String key, required String value});
+
+  void crateApiExecutorSetExecutablePermissions({required String exec});
 
   void crateApiEnvSetOrAppendPathsEnv({
     required String key,
@@ -150,7 +153,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   Future<(String, String)> crateApiExecutorExecuteCommand({
     required String exec,
     required List<String> args,
-    List<String>? ldLibraryPath,
     Map<String, String>? env,
   }) {
     return handler.executeNormal(
@@ -159,7 +161,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           final serializer = SseSerializer(generalizedFrbRustBinding);
           sse_encode_String(exec, serializer);
           sse_encode_list_String(args, serializer);
-          sse_encode_opt_list_String(ldLibraryPath, serializer);
           sse_encode_opt_Map_String_String_None(env, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
@@ -173,7 +174,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeErrorData: sse_decode_String,
         ),
         constMeta: kCrateApiExecutorExecuteCommandConstMeta,
-        argValues: [exec, args, ldLibraryPath, env],
+        argValues: [exec, args, env],
         apiImpl: this,
       ),
     );
@@ -182,7 +183,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   TaskConstMeta get kCrateApiExecutorExecuteCommandConstMeta =>
       const TaskConstMeta(
         debugName: "execute_command",
-        argNames: ["exec", "args", "ldLibraryPath", "env"],
+        argNames: ["exec", "args", "env"],
       );
 
   @override
@@ -248,6 +249,32 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       const TaskConstMeta(debugName: "get_env", argNames: ["key"]);
 
   @override
+  String? crateApiExecutorGetExecutableInterpreter({required String path}) {
+    return handler.executeSync(
+      SyncTask(
+        callFfi: () {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(path, serializer);
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 5)!;
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_opt_String,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiExecutorGetExecutableInterpreterConstMeta,
+        argValues: [path],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiExecutorGetExecutableInterpreterConstMeta =>
+      const TaskConstMeta(
+        debugName: "get_executable_interpreter",
+        argNames: ["path"],
+      );
+
+  @override
   List<String> crateApiEnvGetPathsEnv({
     required String key,
     required String separator,
@@ -258,7 +285,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           final serializer = SseSerializer(generalizedFrbRustBinding);
           sse_encode_String(key, serializer);
           sse_encode_String(separator, serializer);
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 5)!;
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 6)!;
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_list_String,
@@ -285,7 +312,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 6,
+            funcId: 7,
             port: port_,
           );
         },
@@ -312,7 +339,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 7,
+            funcId: 8,
             port: port_,
           );
         },
@@ -338,7 +365,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           final serializer = SseSerializer(generalizedFrbRustBinding);
           sse_encode_String(key, serializer);
           sse_encode_String(value, serializer);
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 8)!;
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 9)!;
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
@@ -355,6 +382,32 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       const TaskConstMeta(debugName: "set_env", argNames: ["key", "value"]);
 
   @override
+  void crateApiExecutorSetExecutablePermissions({required String exec}) {
+    return handler.executeSync(
+      SyncTask(
+        callFfi: () {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(exec, serializer);
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 10)!;
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiExecutorSetExecutablePermissionsConstMeta,
+        argValues: [exec],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiExecutorSetExecutablePermissionsConstMeta =>
+      const TaskConstMeta(
+        debugName: "set_executable_permissions",
+        argNames: ["exec"],
+      );
+
+  @override
   void crateApiEnvSetOrAppendPathsEnv({
     required String key,
     required List<String> paths,
@@ -367,7 +420,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           sse_encode_String(key, serializer);
           sse_encode_list_String(paths, serializer);
           sse_encode_String(separator, serializer);
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 9)!;
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 11)!;
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,

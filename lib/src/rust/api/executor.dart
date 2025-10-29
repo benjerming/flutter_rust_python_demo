@@ -8,15 +8,19 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 // These functions are ignored because they are not marked as `pub`: `extend_env`
 
+String? getExecutableInterpreter({required String path}) =>
+    RustLib.instance.api.crateApiExecutorGetExecutableInterpreter(path: path);
+
+void setExecutablePermissions({required String exec}) =>
+    RustLib.instance.api.crateApiExecutorSetExecutablePermissions(exec: exec);
+
 Future<(String, String)> executeCommand({
   required String exec,
   required List<String> args,
-  List<String>? ldLibraryPath,
   Map<String, String>? env,
 }) => RustLib.instance.api.crateApiExecutorExecuteCommand(
   exec: exec,
   args: args,
-  ldLibraryPath: ldLibraryPath,
   env: env,
 );
 

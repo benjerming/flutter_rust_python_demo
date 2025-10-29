@@ -13,11 +13,8 @@ goblin = "*"
 tokio = { version = "*", features = ["process"] }
 log = "*"
 
-[target.'cfg(target_os = "android")'.dependencies]
-android_logger = "*"
-
-[target.'cfg(not(target_os = "android"))'.dependencies]
-env_logger = "*"
+[target.'cfg(any(target_os = "windows", target_os = "linux"))'.dependencies]
+flexi_logger = { version = "*", features = ["async"] }
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(frb_expand)'] }
