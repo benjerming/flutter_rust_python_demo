@@ -211,11 +211,11 @@ fn wire__crate__api__executor__get_executable_interpreter_impl(
             };
             let mut deserializer =
                 flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api__path = <String>::sse_decode(&mut deserializer);
+            let api_path = <String>::sse_decode(&mut deserializer);
             deserializer.end();
             transform_result_sse::<_, ()>((move || {
                 let output_ok = Result::<_, ()>::Ok(
-                    crate::api::executor::get_executable_interpreter(&api__path),
+                    crate::api::executor::get_executable_interpreter(&api_path),
                 )?;
                 Ok(output_ok)
             })())
@@ -376,10 +376,10 @@ fn wire__crate__api__executor__set_executable_permissions_impl(
             };
             let mut deserializer =
                 flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api__exec = <String>::sse_decode(&mut deserializer);
+            let api_exec = <String>::sse_decode(&mut deserializer);
             deserializer.end();
             transform_result_sse::<_, String>((move || {
-                let output_ok = crate::api::executor::set_executable_permissions(api__exec)?;
+                let output_ok = crate::api::executor::set_executable_permissions(api_exec)?;
                 Ok(output_ok)
             })())
         },

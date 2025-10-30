@@ -39,28 +39,28 @@ pub fn get_executable_interpreter(path: &str) -> Option<String> {
         })?
 }
 
-#[cfg(target_os = "android")]
-#[flutter_rust_bridge::frb(sync)]
-pub fn load_library(lib_path: String) -> Result<(), String> {
-    static GLOBAL_LIBRARIES: OnceLock<Mutex<HashMap<String, libloading::Library>>> =
-        OnceLock::new();
-    let container = GLOBAL_LIBRARIES.get_or_init(|| Mutex::new(HashMap::new()));
+// #[cfg(target_os = "android")]
+// #[flutter_rust_bridge::frb(sync)]
+// pub fn load_library(lib_path: String) -> Result<(), String> {
+//     static GLOBAL_LIBRARIES: OnceLock<Mutex<HashMap<String, libloading::Library>>> =
+//         OnceLock::new();
+//     let container = GLOBAL_LIBRARIES.get_or_init(|| Mutex::new(HashMap::new()));
 
-    let key = lib_path.clone();
+//     let key = lib_path.clone();
 
-    if container
-        .lock()
-        .map_err(|_| "mutex poisoned".to_string())?
-        .contains_key(&key)
-    {
-        return Ok(());
-    }
+//     if container
+//         .lock()
+//         .map_err(|_| "mutex poisoned".to_string())?
+//         .contains_key(&key)
+//     {
+//         return Ok(());
+//     }
 
-    let lib = unsafe { libloading::Library::new(&lib_path).map_err(|e| e.to_string())? };
-    let mut guard = container.lock().map_err(|_| "mutex poisoned".to_string())?;
-    guard.insert(key, lib);
-    Ok(())
-}
+//     let lib = unsafe { libloading::Library::new(&lib_path).map_err(|e| e.to_string())? };
+//     let mut guard = container.lock().map_err(|_| "mutex poisoned".to_string())?;
+//     guard.insert(key, lib);
+//     Ok(())
+// }
 
 #[cfg(unix)]
 #[flutter_rust_bridge::frb(sync)]

@@ -13,6 +13,10 @@ goblin = "*"
 tokio = { version = "*", features = ["process"] }
 log = "*"
 
+[build-dependencies]
+flutter_rust_bridge_codegen = "2.11.1"
+anyhow = { version = "1.0.64", features = ["backtrace"] }
+
 [target.'cfg(any(target_os = "windows", target_os = "linux"))'.dependencies]
 flexi_logger = { version = "*", features = ["async"] }
 
