@@ -1,13 +1,7 @@
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart' show rootBundle;
 import 'package:integrate_python_demo/python/handler.dart';
-import 'package:integrate_python_demo/src/rust/api/executor.dart';
-import 'package:integrate_python_demo/src/rust/api/os.dart';
-import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
 
 class PythonPage extends StatefulWidget {
   const PythonPage({super.key, required this.title});
@@ -40,7 +34,6 @@ class _PythonPageState extends State<PythonPage> {
       });
     }
     try {
-      await _ensureNativeDemoInstalledFromZip();
       await _handler.ensureInitialized();
     } catch (e) {
       if (mounted) {
@@ -54,63 +47,6 @@ class _PythonPageState extends State<PythonPage> {
           _isExtracting = false;
         });
       }
-    }
-  }
-
-  Future<Directory> _getAppSupportDir() async {
-    return await getApplicationSupportDirectory();
-  }
-
-  Future<Directory> _getNativeDemoDir() async {
-    final Directory supportDir = await _getAppSupportDir();
-    return Directory(p.join(supportDir.path, 'assets', abi()));
-  }
-
-  Future<void> _extractAssetFile(String assetPath, String targetDir) async {
-    final ByteData assetData = await rootBundle.load(assetPath);
-    final List<int> assetBytes = assetData.buffer.asUint8List(
-      assetData.offsetInBytes,
-      assetData.lengthInBytes,
-    );
-    final File targetFile = File(p.join(targetDir, assetPath));
-    await targetFile.parent.create(recursive: true);
-    await targetFile.writeAsBytes(assetBytes, flush: true);
-  }
-
-  Future<void> _ensureNativeDemoInstalledFromZip() async {
-    await _extractAssetFile(
-      'assets/${abi()}/nativeexe',
-      (await _getAppSupportDir()).path,
-    );
-    await _extractAssetFile(
-      'assets/${abi()}/libnativelib.so',
-      (await _getAppSupportDir()).path,
-    );
-  }
-
-  void _executeNativeDemo() async {
-    debugPrint('executeNativeDemo start');
-    try {
-      final String dir = (await _getNativeDemoDir()).path;
-      final String exe = p.join(dir, 'nativeexe');
-      final (String stdout, String stderr) = await executeCommand(
-        exec: exe,
-        args: [],
-        env: {'LD_LIBRARY_PATH': dir},
-      );
-      debugPrint('executeNativeDemo result=$stdout');
-      setState(() {
-        _stdout = stdout;
-        _stderr = stderr;
-        _exception = '';
-      });
-    } catch (e) {
-      debugPrint('executeNativeDemo error=$e');
-      setState(() {
-        _stdout = '';
-        _stderr = '';
-        _exception = e.toString();
-      });
     }
   }
 
@@ -198,12 +134,6 @@ class _PythonPageState extends State<PythonPage> {
                           icon: const Icon(Icons.arrow_back),
                           label: const Text('返回'),
                         ),
-                        const SizedBox(width: 12),
-                        if (Platform.isAndroid)
-                          OutlinedButton(
-                            onPressed: _executeNativeDemo,
-                            child: const Text('Native Demo'),
-                          ),
                         const SizedBox(width: 12),
                         OutlinedButton(
                           onPressed: _executeScript,
