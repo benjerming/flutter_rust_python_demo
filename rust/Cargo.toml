@@ -12,6 +12,7 @@ libloading = "*"
 goblin = "*"
 tokio = { version = "*", features = ["process"] }
 log = "*"
+ttf-parser = "0.25.1"
 
 [build-dependencies]
 flutter_rust_bridge_codegen = "2.11.1"
